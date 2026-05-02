@@ -22,8 +22,11 @@ switch ($rango) {
     case 'mes':
         $filtro_fecha = " AND MONTH(v.fecha_hora) = MONTH(CURDATE()) AND YEAR(v.fecha_hora) = YEAR(CURDATE()) ";
         break;
+    default:
+        // Si no es ninguno de los anteriores, no aplicamos filtro
+        $filtro_fecha = ""; 
+        break;
 }
-
 // 1. Ingresos Totales (Afectado por filtro)
 $sql_ventas = "SELECT SUM(total_pagar) as ingresos FROM ventas v WHERE v.estado = 'Completada' $filtro_fecha";
 $res_ventas = $conn->query($sql_ventas);
