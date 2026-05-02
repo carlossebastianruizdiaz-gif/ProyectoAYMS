@@ -1,6 +1,7 @@
 <?php
 session_start();
 include '../Capa de persistencia (BD)/db.php';
+$ruta_imagenes = 'img_productos/';
 
 if (!isset($_SESSION['usuario_id']) || !in_array($_SESSION['rol_id'], [1, 3])) {
     header("Location: index.php");
@@ -28,7 +29,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['accion'])) {
         if (isset($_FILES['imagen_producto']) && $_FILES['imagen_producto']['error'] == 0) {
             $ext = pathinfo($_FILES['imagen_producto']['name'], PATHINFO_EXTENSION);
             $nombre_img = uniqid('prod_') . '.' . $ext; // Genera un nombre único
-            $ruta_destino = 'img_productos/' . $nombre_img;
+            $ruta_destino = $ruta_imagenes . $nombre_img;   
             
             // Movemos la foto de la memoria temporal a la carpeta
             if (move_uploaded_file($_FILES['imagen_producto']['tmp_name'], $ruta_destino)) {
@@ -216,9 +217,15 @@ $res_productos = $conn->query($sql_productos);
             <div style="background: #dcfce7; color: #166534; padding: 12px; border-radius: 8px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
                 <i data-lucide="check-circle" style="width: 20px;"></i> 
                 <?php 
-                    if($_GET['success'] == 'creado') echo "Producto registrado correctamente.";
-                    if($_GET['success'] == 'editado') echo "Producto actualizado correctamente.";
-                    if($_GET['success'] == 'eliminado') echo "Producto eliminado del sistema.";
+                       if($_GET['success'] == 'creado') { 
+                            echo "Producto registrado correctamente."; 
+                       }
+                       if($_GET['success'] == 'editado') { 
+                            echo "Producto actualizado correctamente."; 
+                       }
+                       if($_GET['success'] == 'eliminado') { 
+                            echo "Producto eliminado del sistema."; 
+                       }
                 ?>
             </div>
         <?php endif; ?>
@@ -271,8 +278,8 @@ $res_productos = $conn->query($sql_productos);
                         
                         // Preparar la imagen para la tabla
                         $img_src = (isset($prod['imagen_url']) && $prod['imagen_url'] != 'default_product.png' && !empty($prod['imagen_url'])) 
-                                    ? "img_productos/" . htmlspecialchars($prod['imagen_url']) 
-                                    : ""; 
+                                   ? $ruta_imagenes . htmlspecialchars($prod['imagen_url']) 
+                                   : ""; 
                     ?>
                     <tr class="fila-producto" 
                         data-categoria="<?php echo $cat_id; ?>" 
