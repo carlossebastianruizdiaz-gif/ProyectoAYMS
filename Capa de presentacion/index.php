@@ -2,11 +2,9 @@
 session_start();
 include '../Capa de persistencia (BD)/db.php'; 
 
-// Importar las clases de PHPMailer en la parte superior
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
 
-// Requerir los archivos de PHPMailer que descargaste
 require 'PHPMailer/src/Exception.php';
 require 'PHPMailer/src/PHPMailer.php';
 require 'PHPMailer/src/SMTP.php';
@@ -27,27 +25,30 @@ if (isset($_GET['logout'])) {
 }
 
 // =======================================================
-// 1. AUTO-LOGIN CON COOKIE (MANTENIDO)
+// 1. AUTO-LOGIN CON COOKIE SEGURA
 // =======================================================
-// ... (Toda tu lógica de Auto-Login sigue aquí, no la toqué para ahorrar espacio visual, 
-// pero asume que el bloque if(!isset($_SESSION...)) está aquí tal cual lo teníamos).
 if (!isset($_SESSION['usuario_id']) && isset($_COOKIE['stockflow_remember'])) {
     $cookie_data = explode('|', $_COOKIE['stockflow_remember']);
+    
     if (count($cookie_data) == 2) {
-        $id_cookie = $cookie_data[0];
+        $id_cookie = (int)$cookie_data[0];
         $token_cookie = $cookie_data[1];
+
         $sql_c = "SELECT id_usuario, nombre, password_hash, id_rol FROM usuarios WHERE id_usuario = ?";
         $stmt_c = $conn->prepare($sql_c);
         $stmt_c->bind_param("i", $id_cookie);
         $stmt_c->execute();
         $res_c = $stmt_c->get_result();
+
         if ($res_c->num_rows > 0) {
             $user_c = $res_c->fetch_assoc();
             $token_real = hash('sha256', $user_c['password_hash'] . $clave_secreta);
+            
             if (hash_equals($token_real, $token_cookie)) {
                 $_SESSION['usuario_id'] = $user_c['id_usuario'];
                 $_SESSION['nombre'] = $user_c['nombre'];
                 $_SESSION['rol_id'] = $user_c['id_rol'];
+                
                 if ($user_c['id_rol'] == 1) header("Location: dashboard_admin.php");
                 elseif ($user_c['id_rol'] == 2) header("Location: pos_vendedor.php");
                 else header("Location: inventario.php");
@@ -56,6 +57,7 @@ if (!isset($_SESSION['usuario_id']) && isset($_COOKIE['stockflow_remember'])) {
         }
     }
 }
+
 if (isset($_SESSION['usuario_id'])) {
     if ($_SESSION['rol_id'] == 1) header("Location: dashboard_admin.php");
     elseif ($_SESSION['rol_id'] == 2) header("Location: pos_vendedor.php");
@@ -66,37 +68,45 @@ if (isset($_SESSION['usuario_id'])) {
 // =======================================================
 // 2. PROCESAR LOGIN NORMAL
 // =======================================================
-// ... (Aquí va todo tu bloque normal de if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['login_normal'])) tal como estaba en el anterior mensaje) ...
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['login_normal'])) {
     $email = trim($_POST['email']);
     $password = $_POST['password'];
     $recordarme = isset($_POST['recordarme']) ? true : false; 
+
     $sql = "SELECT id_usuario, nombre, password_hash, id_rol FROM usuarios WHERE email = ?";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param("s", $email);
     $stmt->execute();
     $result = $stmt->get_result();
+
     if ($result->num_rows > 0) {
         $usuario = $result->fetch_assoc();
+        
         if (password_verify($password, $usuario['password_hash'])) {
             $_SESSION['usuario_id'] = $usuario['id_usuario'];
             $_SESSION['nombre'] = $usuario['nombre'];
             $_SESSION['rol_id'] = $usuario['id_rol'];
+
             if ($recordarme) {
                 $token = hash('sha256', $usuario['password_hash'] . $clave_secreta);
                 $valor_cookie = $usuario['id_usuario'] . '|' . $token;
                 setcookie('stockflow_remember', $valor_cookie, time() + (86400 * 30), "/"); 
             }
+
             if ($usuario['id_rol'] == 1) header("Location: dashboard_admin.php");
             elseif ($usuario['id_rol'] == 2) header("Location: pos_vendedor.php");
             else header("Location: inventario.php");
             exit();
-        } else { $error = "Contraseña incorrecta."; }
-    } else { $error = "El correo no está registrado."; }
+        } else {
+            $error = "Contraseña incorrecta.";
+        }
+    } else {
+        $error = "El correo no está registrado.";
+    }
 }
 
 // =======================================================
-// 3. PROCESAR RECUPERACIÓN (LÓGICA BLINDADA)
+// 3. PROCESAR RECUPERACIÓN (LÓGICA BLINDADA Y ORDENADA)
 // =======================================================
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['reset_password'])) {
     $mostrar_recuperacion = true; 
@@ -117,39 +127,52 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['reset_password'])) {
         $mail = new PHPMailer(true);
 
         try {
-            // 1. PRIMERO INTENTAMOS ENVIAR EL CORREO
+            // INTENTO DE ENVÍO DE CORREO
             $mail->isSMTP();                                            
             $mail->Host       = 'smtp.gmail.com';                     
             $mail->SMTPAuth   = true;                                   
             
-            // TUS DATOS
+            // PON TUS DATOS FINALES AQUÍ
             $mail->Username   = 'carlossebastianruizdiaz@gmail.com'; 
             $mail->Password   = 'zwsk wytb cfzu kkje';  
             
             $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;            
             $mail->Port       = 587;                                    
 
-            $mail->setFrom('TU_CORREO@gmail.com', 'Sistema StockFlow');
+            $mail->setFrom('TU_CORREO_CARTERO@gmail.com', 'Sistema StockFlow');
             $mail->addAddress($email_recup, $usuario_recup['nombre']);     
 
             $mail->isHTML(true);                                  
             $mail->Subject = 'Recuperacion de Acceso - StockFlow';
-            $mail->Body = "Hola <b>{$usuario_recup['nombre']}</b>, tu nueva clave es: <h2>{$clave_temporal}</h2>";
+            
+            $mail->Body = "
+                <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden;'>
+                    <div style='background-color: #1a73e8; color: white; padding: 20px; text-align: center;'>
+                        <h2 style='margin: 0;'>Recuperación de Contraseña</h2>
+                    </div>
+                    <div style='padding: 30px; background-color: #f8fafc; color: #334155;'>
+                        <p>Hola <strong>" . htmlspecialchars($usuario_recup['nombre']) . "</strong>,</p>
+                        <p>Hemos recibido una solicitud para restablecer tu acceso al sistema.</p>
+                        <p>Tu nueva contraseña temporal generada por el sistema es:</p>
+                        <div style='text-align: center; margin: 30px 0;'>
+                            <span style='background-color: #e2e8f0; padding: 15px 25px; font-size: 24px; font-weight: bold; letter-spacing: 2px; border-radius: 8px; color: #0f172a;'>{$clave_temporal}</span>
+                        </div>
+                    </div>
+                </div>";
 
-            // Si esto falla, saltará directo al 'catch' y no ejecutará la línea de abajo
+            // Si esto falla, salta al catch y NO actualiza la BD
             $mail->send(); 
 
-            // 2. SI EL CORREO LLEGÓ, RECIÉN ACTUALIZAMOS LA BASE DE DATOS
+            // SI EL CORREO SE ENVIÓ, SE ACTUALIZA LA BD
             $sql_upd = "UPDATE usuarios SET password_hash = ? WHERE email = ?";
             $stmt_upd = $conn->prepare($sql_upd);
             $stmt_upd->bind_param("ss", $hash_temporal, $email_recup);
             $stmt_upd->execute();
 
-            $mensaje_recuperacion = "<div class='success-msj'>¡Éxito! Hemos enviado una contraseña temporal a tu correo.</div>";
+            $mensaje_recuperacion = "<div class='success-msj'><i data-lucide='check-circle' style='width: 18px; margin-right: 5px; vertical-align: text-bottom;'></i> ¡Éxito! Hemos enviado una contraseña temporal a tu correo.</div>";
         
         } catch (Exception $e) {
-            // Si el correo rebota, avisamos y la contraseña antigua se mantiene intacta
-            $mensaje_recuperacion = "<div class='error-msj'>Error al enviar el correo. La contraseña NO fue cambiada. Detalle: {$mail->ErrorInfo}</div>";
+            $mensaje_recuperacion = "<div class='error-msj'><i data-lucide='alert-triangle' style='width: 18px; margin-right: 5px; vertical-align: text-bottom;'></i> Error de conexión. La contraseña NO fue cambiada. Intenta más tarde.</div>";
         }
     } else {
         $mensaje_recuperacion = "<div class='error-msj'>Este correo no existe en nuestro sistema.</div>";
@@ -159,7 +182,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['reset_password'])) {
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <!-- ... (Todo el HTML y CSS se mantiene EXACTAMENTE igual al del diseño anterior) ... -->
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - StockFlow</title>
@@ -250,7 +272,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['reset_password'])) {
                     <label>Correo Electrónico a recuperar</label>
                     <div class="input-wrapper">
                         <i data-lucide="at-sign"></i>
-                        <!-- Quité el campo del PIN de la versión anterior, ahora solo pide correo -->
                         <input type="email" name="email_recuperacion" placeholder="Tu correo registrado..." required <?php echo $mostrar_recuperacion ? 'autofocus' : ''; ?>>
                     </div>
                 </div>
