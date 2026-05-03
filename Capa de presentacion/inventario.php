@@ -1,4 +1,5 @@
 <?php
+// Version con Registro de Auditoria (Detalle de Cambios exactos)
 session_start();
 include '../Capa de persistencia (BD)/db.php';
 $ruta_imagenes = 'img_productos/';
@@ -9,10 +10,12 @@ if (!isset($_SESSION['usuario_id']) || !in_array($_SESSION['rol_id'], [1, 3])) {
 }
 
 // ==========================================
-// PROCESAMIENTO DE FORMULARIOS
+// PROCESAMIENTO DE FORMULARIOS Y AUDITORÍA
 // ==========================================
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['accion'])) {
     $accion = $_POST['accion'];
+    // Nombre de quien hace la accion para la bitácora
+    $usuario_responsable = $_SESSION['nombre'] ?? 'Administrador';
 
     // 1. NUEVO PRODUCTO
     if ($accion == 'nuevo') {
@@ -24,31 +27,31 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['accion'])) {
         $stock = $_POST['stock_actual'];
         $minimo = $_POST['stock_minimo'];
         
-        // Procesar la Imagen
-        $imagen_url = 'default_product.png'; // Valor por defecto
+        $imagen_url = 'default_product.png'; 
         if (isset($_FILES['imagen_producto']) && $_FILES['imagen_producto']['error'] == 0) {
             $ext = pathinfo($_FILES['imagen_producto']['name'], PATHINFO_EXTENSION);
-            $nombre_img = uniqid('prod_') . '.' . $ext; // Genera un nombre único
+            $nombre_img = uniqid('prod_') . '.' . $ext; 
             $ruta_destino = $ruta_imagenes . $nombre_img;   
-            
-            // Movemos la foto de la memoria temporal a la carpeta
             if (move_uploaded_file($_FILES['imagen_producto']['tmp_name'], $ruta_destino)) {
                 $imagen_url = $nombre_img;
             }
         }
 
-        if (empty($codigo_barras) || empty($nombre) || empty($id_categoria)) {
-            echo "<script>alert('Error: Datos incompletos.'); window.location.href='inventario.php';</script>";
-            exit();
-        }
-
         $sql_insert = "INSERT INTO productos (codigo_barras, nombre, id_categoria, costo_compra, precio_venta, stock_actual, stock_minimo, imagen_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
         $stmt = $conn->prepare($sql_insert);
-        // Tipos: s (string), s (string), i (int), d (double), d (double), i (int), i (int), s (string)
         $stmt->bind_param("ssiddiis", $codigo_barras, $nombre, $id_categoria, $costo, $precio, $stock, $minimo, $imagen_url);
         
         try {
             $stmt->execute();
+            
+            // --- GRABAR EN LA BITÁCORA ---
+            $detalle_log = "Ingresó producto con Stock Inicial: $stock u. | Precio Venta: Bs " . number_format($precio, 2);
+            $sql_log = "INSERT INTO historial_inventario (usuario_nombre, accion, producto_nombre, detalle) VALUES (?, 'NUEVO PRODUCTO', ?, ?)";
+            $stmt_log = $conn->prepare($sql_log);
+            $stmt_log->bind_param("sss", $usuario_responsable, $nombre, $detalle_log);
+            $stmt_log->execute();
+            // -----------------------------
+
             header("Location: inventario.php?success=creado");
             exit();
         } catch (mysqli_sql_exception $e) {
@@ -58,7 +61,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['accion'])) {
         }
     }
     
-    // 2. EDITAR PRODUCTO
+    // 2. EDITAR PRODUCTO (AHORA CON COMPARACIÓN DE CAMBIOS)
     else if ($accion == 'editar') {
         $id_producto = $_POST['id_producto'];
         $codigo_barras = trim($_POST['codigo_barras']);
@@ -69,7 +72,24 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['accion'])) {
         $stock = $_POST['stock_actual'];
         $minimo = $_POST['stock_minimo'];
 
-        // Revisamos si subió una foto nueva al editar
+        // --- LÓGICA DE AUDITORÍA: LEER DATOS ANTIGUOS ---
+        $sql_old = "SELECT codigo_barras, nombre, id_categoria, costo_compra, precio_venta, stock_actual, stock_minimo FROM productos WHERE id_producto = ?";
+        $stmt_old = $conn->prepare($sql_old);
+        $stmt_old->bind_param("i", $id_producto);
+        $stmt_old->execute();
+        $old_data = $stmt_old->get_result()->fetch_assoc();
+
+        // Comparar y armar el mensaje de cambios
+        $cambios = [];
+        if ($old_data['nombre'] != $nombre) $cambios[] = "Nombre: '{$old_data['nombre']}' ➔ '$nombre'";
+        if ($old_data['codigo_barras'] != $codigo_barras) $cambios[] = "Código: '{$old_data['codigo_barras']}' ➔ '$codigo_barras'";
+        if ($old_data['costo_compra'] != $costo) $cambios[] = "Costo: Bs {$old_data['costo_compra']} ➔ Bs $costo";
+        if ($old_data['precio_venta'] != $precio) $cambios[] = "Precio: Bs {$old_data['precio_venta']} ➔ Bs $precio";
+        if ($old_data['stock_actual'] != $stock) $cambios[] = "Stock: {$old_data['stock_actual']} ➔ $stock";
+        if ($old_data['stock_minimo'] != $minimo) $cambios[] = "Alerta Min: {$old_data['stock_minimo']} ➔ $minimo";
+        if ($old_data['id_categoria'] != $id_categoria) $cambios[] = "Categoría actualizada";
+
+        $imagen_actualizada = false;
         if (isset($_FILES['imagen_producto']) && $_FILES['imagen_producto']['error'] == 0) {
             $ext = pathinfo($_FILES['imagen_producto']['name'], PATHINFO_EXTENSION);
             $nombre_img = uniqid('prod_') . '.' . $ext;
@@ -79,9 +99,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['accion'])) {
                 $sql_update = "UPDATE productos SET codigo_barras=?, nombre=?, id_categoria=?, costo_compra=?, precio_venta=?, stock_actual=?, stock_minimo=?, imagen_url=? WHERE id_producto=?";
                 $stmt = $conn->prepare($sql_update);
                 $stmt->bind_param("ssiddiisi", $codigo_barras, $nombre, $id_categoria, $costo, $precio, $stock, $minimo, $nombre_img, $id_producto);
+                $imagen_actualizada = true;
+                $cambios[] = "Imagen reemplazada";
             }
-        } else {
-            // Si no subió foto nueva, actualizamos todo menos la imagen
+        } 
+        
+        if (!$imagen_actualizada) {
             $sql_update = "UPDATE productos SET codigo_barras=?, nombre=?, id_categoria=?, costo_compra=?, precio_venta=?, stock_actual=?, stock_minimo=? WHERE id_producto=?";
             $stmt = $conn->prepare($sql_update);
             $stmt->bind_param("ssiddiii", $codigo_barras, $nombre, $id_categoria, $costo, $precio, $stock, $minimo, $id_producto);
@@ -89,6 +112,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['accion'])) {
         
         try {
             $stmt->execute();
+
+            // --- GRABAR EN LA BITÁCORA EL DETALLE EXACTO ---
+            // Si el array de cambios está vacío, significa que el usuario abrió y guardó sin cambiar nada.
+            $detalle_log = empty($cambios) ? "Se abrió y guardó el producto sin detectar cambios en sus valores." : implode(" | ", $cambios);
+            
+            $sql_log = "INSERT INTO historial_inventario (usuario_nombre, accion, producto_nombre, detalle) VALUES (?, 'MODIFICACIÓN', ?, ?)";
+            $stmt_log = $conn->prepare($sql_log);
+            $stmt_log->bind_param("sss", $usuario_responsable, $nombre, $detalle_log);
+            $stmt_log->execute();
+            // -----------------------------
+
             header("Location: inventario.php?success=editado");
             exit();
         } catch (mysqli_sql_exception $e) {
@@ -101,14 +135,41 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['accion'])) {
     // 3. ELIMINAR PRODUCTO
     else if ($accion == 'eliminar') {
         $id_producto = $_POST['id_producto'];
+
+        // Obtener el nombre del producto ANTES de borrarlo para anotarlo en la bitácora
+        $res_nom = $conn->query("SELECT nombre FROM productos WHERE id_producto=$id_producto");
+        $nombre_borrado = "Producto Desconocido";
+        if($res_nom && $res_nom->num_rows > 0) {
+            $nombre_borrado = $res_nom->fetch_assoc()['nombre'];
+        }
+
         $sql_delete = "DELETE FROM productos WHERE id_producto=?";
         $stmt = $conn->prepare($sql_delete);
         $stmt->bind_param("i", $id_producto);
         $stmt->execute();
+
+        // --- GRABAR EN LA BITÁCORA ---
+        $detalle_log = "El producto y todos sus registros fueron eliminados del sistema.";
+        $sql_log = "INSERT INTO historial_inventario (usuario_nombre, accion, producto_nombre, detalle) VALUES (?, 'ELIMINACIÓN', ?, ?)";
+        $stmt_log = $conn->prepare($sql_log);
+        $stmt_log->bind_param("sss", $usuario_responsable, $nombre_borrado, $detalle_log);
+        $stmt_log->execute();
+        // -----------------------------
+
         header("Location: inventario.php?success=eliminado");
         exit();
     }
 }
+
+// --- INDICADORES DE INVENTARIO DINÁMICOS ---
+$res_total = $conn->query("SELECT COUNT(*) AS total FROM productos");
+$total_productos = $res_total->fetch_assoc()['total'];
+
+$res_por_agotarse = $conn->query("SELECT COUNT(*) AS por_agotarse FROM productos WHERE stock_actual <= stock_minimo AND stock_actual > 0");
+$stock_por_agotarse = $res_por_agotarse->fetch_assoc()['por_agotarse'];
+
+$res_agotados = $conn->query("SELECT COUNT(*) AS agotados FROM productos WHERE stock_actual = 0");
+$stock_agotados = $res_agotados->fetch_assoc()['agotados'];
 
 // ==========================================
 // CONSULTAS DE LECTURA
@@ -158,15 +219,17 @@ $res_productos = $conn->query($sql_productos);
         th { text-align: left; padding: 14px; color: #64748b; font-weight: 600; border-bottom: 2px solid #e2e8f0; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px;}
         td { padding: 16px 14px; border-bottom: 1px solid #f1f5f9; font-size: 15px; color: #334155; vertical-align: middle; }
         tr:hover { background-color: #f8fafc; }
-        .badge { padding: 6px 10px; border-radius: 6px; font-weight: 600; font-size: 12px; display: inline-block; text-align: center; min-width: 80px;}
-        .badge-ok { background: #f0fdf4; color: #22c55e; }
-        .badge-critico { background: #fef2f2; color: #ef4444; border: 1px solid #fecaca; }
         
-        /* Estilo para la mini foto en la tabla */
+        /* Clases para los 3 estados dinámicos */
+        .badge { padding: 6px 10px; border-radius: 6px; font-weight: 600; font-size: 12px; display: inline-block; text-align: center; min-width: 85px;}
+        .badge-ok { background: #f0fdf4; color: #22c55e; }
+        .badge-agotarse { background: #fef3c7; color: #d97706; }
+        .badge-agotado { background: #fef2f2; color: #ef4444; border: 1px solid #fecaca; }
+        
         .thumb-img { width: 40px; height: 40px; border-radius: 8px; object-fit: cover; border: 1px solid #e2e8f0; background: #f8fafc; }
         
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 1000; }
-        .modal { background: white; padding: 30px; border-radius: 16px; width: 100%; max-width: 500px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); }
+        .modal { background: white; padding: 30px; border-radius: 16px; width: 100%; max-width: 500px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); max-height: 90vh; overflow-y: auto;}
         .modal h2 { margin-bottom: 20px; color: #0f172a; }
         .form-group { margin-bottom: 15px; }
         .form-group label { display: block; margin-bottom: 6px; font-size: 14px; font-weight: 600; color: #475569; }
@@ -187,16 +250,22 @@ $res_productos = $conn->query($sql_productos);
             <i data-lucide="layout-dashboard"></i> Dashboard
         </a>
         <?php endif; ?>
+        
         <?php if (in_array($_SESSION['rol_id'], [1, 3])): ?>
         <a href="inventario.php" class="menu-item <?php echo basename($_SERVER['PHP_SELF']) == 'inventario.php' ? 'active' : ''; ?>">
             <i data-lucide="box"></i> Inventario
         </a>
         <?php endif; ?>
+
         <?php if ($_SESSION['rol_id'] == 1): ?>
+        <a href="historial.php" class="menu-item <?php echo basename($_SERVER['PHP_SELF']) == 'historial.php' ? 'active' : ''; ?>">
+            <i data-lucide="history"></i> Bitácora
+        </a>
         <a href="personal.php" class="menu-item <?php echo basename($_SERVER['PHP_SELF']) == 'personal.php' ? 'active' : ''; ?>">
             <i data-lucide="users"></i> Personal
         </a>
         <?php endif; ?>
+        
         <a href="index.php" class="menu-item logout" style="margin-top: auto;">
             <i data-lucide="log-out"></i> Cerrar Sesión
         </a>
@@ -212,20 +281,47 @@ $res_productos = $conn->query($sql_productos);
                 <i data-lucide="plus" style="width: 18px;"></i> Nuevo Producto
             </button>
         </div>
+        
+        <!-- Tarjetas de Indicadores (KPIs) -->
+        <div style="display: flex; gap: 20px; margin-bottom: 24px;">
+            <div style="flex: 1; background: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                <div>
+                    <p style="margin: 0; color: #6b7280; font-size: 14px; font-weight: 500;">Total Productos</p>
+                    <h3 style="margin: 5px 0 0 0; color: #111827; font-size: 24px; font-weight: 700;"><?php echo $total_productos; ?></h3>
+                </div>
+                <div style="background: #eff6ff; padding: 12px; border-radius: 50%; color: #2563eb; display: flex; align-items: center; justify-content: center;">
+                    <i data-lucide="package"></i>
+                </div>
+            </div>
+
+            <div style="flex: 1; background: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                <div>
+                    <p style="margin: 0; color: #6b7280; font-size: 14px; font-weight: 500;">Por agotarse</p>
+                    <h3 style="margin: 5px 0 0 0; color: #111827; font-size: 24px; font-weight: 700;"><?php echo $stock_por_agotarse; ?></h3>
+                </div>
+                <div style="background: #fff7ed; padding: 12px; border-radius: 50%; color: #ea580c; display: flex; align-items: center; justify-content: center;">
+                    <i data-lucide="alert-triangle"></i>
+                </div>
+            </div>
+
+            <div style="flex: 1; background: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                <div>
+                    <p style="margin: 0; color: #6b7280; font-size: 14px; font-weight: 500;">Agotados</p>
+                    <h3 style="margin: 5px 0 0 0; color: #111827; font-size: 24px; font-weight: 700;"><?php echo $stock_agotados; ?></h3>
+                </div>
+                <div style="background: #fef2f2; padding: 12px; border-radius: 50%; color: #dc2626; display: flex; align-items: center; justify-content: center;">
+                    <i data-lucide="x-circle"></i>
+                </div>
+            </div>
+        </div>
 
         <?php if(isset($_GET['success'])): ?>
             <div style="background: #dcfce7; color: #166534; padding: 12px; border-radius: 8px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
                 <i data-lucide="check-circle" style="width: 20px;"></i> 
                 <?php 
-                       if($_GET['success'] == 'creado') { 
-                            echo "Producto registrado correctamente."; 
-                       }
-                       if($_GET['success'] == 'editado') { 
-                            echo "Producto actualizado correctamente."; 
-                       }
-                       if($_GET['success'] == 'eliminado') { 
-                            echo "Producto eliminado del sistema."; 
-                       }
+                       if($_GET['success'] == 'creado') { echo "Producto registrado y notificado en bitácora."; }
+                       if($_GET['success'] == 'editado') { echo "Producto actualizado y notificado en bitácora."; }
+                       if($_GET['success'] == 'eliminado') { echo "Producto eliminado del sistema (Auditoría guardada)."; }
                 ?>
             </div>
         <?php endif; ?>
@@ -247,8 +343,9 @@ $res_productos = $conn->query($sql_productos);
 
             <select id="filtroStock" class="filtro-select" onchange="ejecutarFiltros()">
                 <option value="todos">Todos los estados</option>
-                <option value="optimo">Solo Óptimo</option>
-                <option value="critico">Solo Crítico (Bajo Stock)</option>
+                <option value="optimo">Óptimo</option>
+                <option value="agotarse">Por agotarse</option>
+                <option value="agotado">Agotados</option>
             </select>
             
             <button class="btn-secondary" style="padding: 10px;" onclick="limpiarFiltros()" title="Limpiar Filtros">
@@ -272,11 +369,28 @@ $res_productos = $conn->query($sql_productos);
                 </thead>
                 <tbody id="tablaProductos">
                     <?php while($prod = $res_productos->fetch_assoc()): 
-                        $es_critico = $prod['stock_actual'] <= $prod['stock_minimo'];
-                        $estado_clase = $es_critico ? 'critico' : 'optimo';
+                        $stock = $prod['stock_actual'];
+                        $minimo = $prod['stock_minimo'];
+
+                        if ($stock == 0) {
+                            $estado_clase = 'agotado';
+                            $badge_clase = 'badge-agotado';
+                            $etiqueta = 'Agotado';
+                            $color_texto_stock = '#ef4444'; 
+                        } elseif ($stock <= $minimo) {
+                            $estado_clase = 'agotarse';
+                            $badge_clase = 'badge-agotarse';
+                            $etiqueta = 'Por agotarse';
+                            $color_texto_stock = '#d97706'; 
+                        } else {
+                            $estado_clase = 'optimo';
+                            $badge_clase = 'badge-ok';
+                            $etiqueta = 'Óptimo';
+                            $color_texto_stock = ''; 
+                        }
+
                         $cat_id = $prod['id_categoria'] ? $prod['id_categoria'] : 'sin_categoria';
                         
-                        // Preparar la imagen para la tabla
                         $img_src = (isset($prod['imagen_url']) && $prod['imagen_url'] != 'default_product.png' && !empty($prod['imagen_url'])) 
                                    ? $ruta_imagenes . htmlspecialchars($prod['imagen_url']) 
                                    : ""; 
@@ -312,15 +426,11 @@ $res_productos = $conn->query($sql_productos);
                         </td>
                         <td>Bs <?php echo number_format($prod['costo_compra'], 2); ?></td>
                         <td style="font-weight: bold; color: #1a73e8;">Bs <?php echo number_format($prod['precio_venta'], 2); ?></td>
-                        <td style="<?php echo $es_critico ? 'color: #ef4444; font-weight: bold;' : ''; ?>">
+                        <td style="<?php echo $color_texto_stock ? "color: {$color_texto_stock}; font-weight: bold;" : ''; ?>">
                             <?php echo $prod['stock_actual']; ?> und.
                         </td>
                         <td>
-                            <?php if($es_critico): ?>
-                                <span class="badge badge-critico">Crítico</span>
-                            <?php else: ?>
-                                <span class="badge badge-ok">Óptimo</span>
-                            <?php endif; ?>
+                            <span class="badge <?php echo $badge_clase; ?>"><?php echo $etiqueta; ?></span>
                         </td>
                         <td>
                             <button class="btn-icon" title="Editar" onclick="editarProducto(
@@ -353,6 +463,7 @@ $res_productos = $conn->query($sql_productos);
         </div>
     </div>
 
+    <!-- MODAL DE REGISTRO / EDICIÓN LIMPIO -->
     <div class="modal-overlay" id="modalProducto">
         <div class="modal">
             <h2 id="modalTitulo">Registrar Nuevo Producto</h2>
@@ -505,13 +616,12 @@ $res_productos = $conn->query($sql_productos);
             document.getElementById('modalStock').value = stock;
             document.getElementById('modalMinimo').value = minimo;
             
-            // Limpiamos el input file para que no se envíe la foto vieja por accidente
             document.getElementById('modalImagen').value = ''; 
             abrirModal();
         }
 
         function eliminarProducto(id) {
-            if (confirm('¿Estás seguro de que deseas eliminar este producto? Esta acción no se puede deshacer.')) {
+            if (confirm('¿Estás seguro de que deseas eliminar este producto? La acción se registrará en la bitácora.')) {
                 const form = document.createElement('form');
                 form.method = 'POST';
                 form.action = 'inventario.php';

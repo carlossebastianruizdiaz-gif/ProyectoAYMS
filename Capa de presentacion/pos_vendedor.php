@@ -1,6 +1,6 @@
 <?php
 // Author: Dennis Delgado
-// Version: 3.2 (Con Modal de Novedades)
+// Version: 4.2 (Buscador visual con Código de Barras expuesto)
 session_start();
 if (!isset($_SESSION['usuario_id']) || !in_array($_SESSION['rol_id'], [1, 2])) {
     header("Location: index.php");
@@ -9,7 +9,7 @@ if (!isset($_SESSION['usuario_id']) || !in_array($_SESSION['rol_id'], [1, 2])) {
 include '../Capa de persistencia (BD)/db.php';
 
 // ==========================================
-// OBTENER LAS ÚLTIMAS NOVEDADES (Top 5 productos más recientes)
+// OBTENER LAS ÚLTIMAS NOVEDADES
 // ==========================================
 $sqlNovedades = "SELECT nombre, precio_venta, stock_actual, imagen_url FROM productos ORDER BY id_producto DESC LIMIT 5";
 $resNovedades = $conn->query($sqlNovedades);
@@ -48,7 +48,7 @@ if ($resNovedades && $resNovedades->num_rows > 0) {
         .prod-img-container { width: 100%; height: 120px; margin-bottom: 15px; border-radius: 8px; overflow: hidden; background: #f8fafc; display: flex; align-items: center; justify-content: center; border: 1px dashed #cbd5e1; }
         .prod-img-container img { width: 100%; height: 100%; object-fit: cover; }
         
-        .prod-nombre { font-weight: 600; font-size: 14px; margin-bottom: auto; height: 40px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+        .prod-nombre { font-weight: 600; font-size: 14px; margin-bottom: 4px; height: 38px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
         .prod-precio { color: #1a73e8; font-weight: 800; font-size: 18px; margin-top: 10px; margin-bottom: 5px; }
         .prod-stock { font-size: 12px; color: #64748b; }
 
@@ -63,7 +63,7 @@ if ($resNovedades && $resNovedades->num_rows > 0) {
         .cart-footer { padding: 20px; border-top: 1px solid #e2e8f0; background: #f8fafc; }
         .total-row { display: flex; justify-content: space-between; align-items: center; font-size: 24px; font-weight: 800; margin-bottom: 15px; color: #0f172a; }
         
-        /* Botones y Utilitarios */
+        /* Botones */
         .btn-cobrar { width: 100%; padding: 15px; background: #94a3b8; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 10px; cursor: not-allowed; transition: 0.2s; }
         .btn-cobrar.activo { background: #1a73e8; cursor: pointer; }
         .btn-cobrar.activo:hover { background: #1557b0; }
@@ -76,7 +76,7 @@ if ($resNovedades && $resNovedades->num_rows > 0) {
         .btn-del { padding: 4px 8px; border: none; background: #fee2e2; color: #ef4444; border-radius: 4px; cursor: pointer; display: flex; align-items: center; }
         .btn-del:hover { background: #fecaca; }
 
-        /* Modal Base */
+        /* Modal */
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 1000; }
         .modal { background: white; padding: 30px; border-radius: 16px; width: 100%; max-width: 500px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); }
     </style>
@@ -98,7 +98,7 @@ if ($resNovedades && $resNovedades->num_rows > 0) {
             <div style="display: flex; gap: 15px;">
                 <div style="flex: 1; position: relative;">
                     <i data-lucide="search" style="position: absolute; left: 14px; top: 14px; color: #94a3b8; width: 20px;"></i>
-                    <input type="text" id="buscadorProductos" placeholder="Buscar producto..." style="width: 100%; padding: 14px 14px 14px 45px; border-radius: 8px; border: 1px solid #cbd5e1; outline: none; font-size: 15px;">
+                    <input type="text" id="buscadorProductos" autofocus placeholder="Buscar por código (Ej. T4-018), nombre o escáner..." style="width: 100%; padding: 14px 14px 14px 45px; border-radius: 8px; border: 1px solid #cbd5e1; outline: none; font-size: 15px;">
                 </div>
                <select id="filtroCategoria" style="width: 200px; padding: 14px; border-radius: 8px; border: 1px solid #cbd5e1; outline: none; font-size: 15px; background: white; cursor: pointer;">
                     <option value="todas">Todas las categorías</option>
@@ -128,8 +128,8 @@ if ($resNovedades && $resNovedades->num_rows > 0) {
                     $precioFormat = number_format($precioBD, 2);
                     $stock = $row['stock_actual'];
                     $id_categoria = isset($row['id_categoria']) ? $row['id_categoria'] : 'sin_categoria';
+                    $codigo_barras = htmlspecialchars(trim($row['codigo_barras'] ?? 'N/A'));
                     
-                    // Lógica de Imagen
                     $imagen_html = "";
                     if (isset($row['imagen_url']) && $row['imagen_url'] != 'default_product.png' && !empty($row['imagen_url'])) {
                         $ruta_img = "img_productos/" . htmlspecialchars($row['imagen_url']);
@@ -138,10 +138,12 @@ if ($resNovedades && $resNovedades->num_rows > 0) {
                         $imagen_html = "<i data-lucide='image' style='width: 40px; height: 40px; color: #cbd5e1;'></i>";
                     }
                     
+                    // --- AQUI ESTA LA MEJORA VISUAL DEL CODIGO ---
                     echo "
                     <div class='tarjeta-producto' 
                          data-nombre='".strtolower($nombre)."' 
                          data-categoria='".$id_categoria."'
+                         data-codigo='".strtolower($codigo_barras)."'
                          onclick='agregarAlCarrito($id, \"".addslashes($nombre)."\", $precioBD, $stock)'>
                          
                         <div class='prod-img-container'>
@@ -149,6 +151,14 @@ if ($resNovedades && $resNovedades->num_rows > 0) {
                         </div>
                         
                         <div class='prod-nombre'>{$nombre}</div>
+                        
+                        <!-- Etiqueta visual del código de barras -->
+                        <div style='margin-bottom: auto;'>
+                            <span style='font-size: 11px; font-weight: 600; color: #475569; background: #f1f5f9; padding: 3px 8px; border-radius: 6px; border: 1px solid #e2e8f0;'>
+                                <i data-lucide='barcode' style='width: 12px; height: 12px; display: inline-block; vertical-align: -2px; margin-right: 3px;'></i>{$codigo_barras}
+                            </span>
+                        </div>
+                        
                         <div class='prod-precio'>Bs {$precioFormat}</div>
                         <div class='prod-stock'>Stock: {$stock} u.</div>
                     </div>
@@ -237,45 +247,98 @@ if ($resNovedades && $resNovedades->num_rows > 0) {
     <script>
         lucide.createIcons();
 
-        // ==========================================
-        // LÓGICA DEL MODAL DE NOVEDADES
-        // ==========================================
         function cerrarNovedades() {
             document.getElementById('modalNovedades').style.display = 'none';
+            document.getElementById('buscadorProductos').focus(); 
         }
 
-        // Revisar al cargar la página si ya se mostró la ventana en esta sesión
         window.addEventListener('DOMContentLoaded', () => {
             if (!sessionStorage.getItem('novedadesStockFlow')) {
-                // Si no existe la variable, mostramos el modal
                 document.getElementById('modalNovedades').style.display = 'flex';
-                // Y creamos la variable para que no vuelva a salir
                 sessionStorage.setItem('novedadesStockFlow', 'visto');
             }
         });
 
-        // ==========================================
-        // LÓGICA DEL BUSCADOR Y FILTROS
-        // ==========================================
         const buscador = document.getElementById('buscadorProductos');
         const filtroCat = document.getElementById('filtroCategoria');
         const tarjetas = document.querySelectorAll('.tarjeta-producto');
 
         function filtrarProductos() {
-            const textoBusqueda = buscador.value.toLowerCase();
+            const textoBusqueda = buscador.value.toLowerCase().trim();
             const categoriaSeleccionada = filtroCat.value;
 
             tarjetas.forEach(tarjeta => {
-                const nombre = tarjeta.getAttribute('data-nombre');
-                const categoria = tarjeta.getAttribute('data-categoria');
-                const coincideTexto = nombre.includes(textoBusqueda);
+                const nombre = tarjeta.getAttribute('data-nombre') || "";
+                const codigo = tarjeta.getAttribute('data-codigo') || ""; 
+                const categoria = tarjeta.getAttribute('data-categoria') || "";
+                
+                const coincideTexto = nombre.includes(textoBusqueda) || codigo.includes(textoBusqueda);
                 const coincideCategoria = (categoriaSeleccionada === 'todas') || (categoria === categoriaSeleccionada);
 
                 tarjeta.style.display = (coincideTexto && coincideCategoria) ? 'flex' : 'none';
             });
         }
+        
         buscador.addEventListener('input', filtrarProductos);
         filtroCat.addEventListener('change', filtrarProductos);
+
+        // ==========================================
+        // LÓGICA DE TECLADO (BUSCADOR MANUAL + ESCÁNER)
+        // ==========================================
+        let bufferEscaneo = "";
+        let tiempoEscaneo;
+
+        document.addEventListener('keydown', function(event) {
+            if (document.getElementById('modalNovedades').style.display === 'flex') return;
+
+            // Escáner en el aire (fuera del buscador)
+            if (document.activeElement.id !== 'buscadorProductos' && event.key.length === 1) {
+                bufferEscaneo += event.key;
+                clearTimeout(tiempoEscaneo);
+                tiempoEscaneo = setTimeout(() => { bufferEscaneo = ""; }, 100); 
+            }
+
+            if (event.key === 'Enter') {
+                let productoEncontrado = null;
+
+                // 1. Si presionaste Enter ESTANDO dentro del buscador
+                if (document.activeElement.id === 'buscadorProductos') {
+                    event.preventDefault(); 
+                    const textoBusqueda = buscador.value.toLowerCase().trim();
+
+                    if (textoBusqueda !== "") {
+                        tarjetas.forEach(t => {
+                            if (t.getAttribute('data-codigo') === textoBusqueda) {
+                                productoEncontrado = t;
+                            }
+                        });
+
+                        if (!productoEncontrado) {
+                            let visibles = Array.from(tarjetas).filter(t => t.style.display !== 'none');
+                            if (visibles.length === 1) {
+                                productoEncontrado = visibles[0];
+                            }
+                        }
+
+                        if (productoEncontrado) {
+                            productoEncontrado.click();
+                            buscador.value = "";
+                            filtrarProductos(); 
+                        }
+                    }
+                } 
+                // 2. Si presionaste Enter AFUERA del buscador (Escáner Global)
+                else if (bufferEscaneo !== "") {
+                    event.preventDefault();
+                    let codigoABuscar = bufferEscaneo.toLowerCase().trim();
+                    tarjetas.forEach(t => {
+                        if (t.getAttribute('data-codigo') === codigoABuscar) productoEncontrado = t;
+                    });
+                    if (productoEncontrado) productoEncontrado.click();
+                    bufferEscaneo = "";
+                }
+            }
+        });
 
         // ==========================================
         // LÓGICA DEL CARRITO DE COMPRAS

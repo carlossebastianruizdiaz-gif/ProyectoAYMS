@@ -8,25 +8,55 @@ if (!isset($_SESSION['usuario_id']) || $_SESSION['rol_id'] != 1) {
     exit();
 }
 
-// GDIYV-29: Lógica del Filtro de Rango de Fechas
-$rango = $_GET['rango'] ?? 'todo';
+// ==========================================
+// LÓGICA DEL FILTRO SÚPER AVANZADO 
+// ==========================================
+$rango = $_GET['rango'] ?? 'todo'; 
+$fecha_filtro = $_GET['fecha_filtro'] ?? '';
+$mes_filtro = $_GET['mes_filtro'] ?? '';
+$anio_filtro = $_GET['anio_filtro'] ?? '';
+
 $filtro_fecha = "";
 
-switch ($rango) {
-    case 'hoy':
-        $filtro_fecha = " AND DATE(v.fecha_hora) = CURDATE() ";
-        break;
-    case 'semana':
-        $filtro_fecha = " AND v.fecha_hora >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) ";
-        break;
-    case 'mes':
-        $filtro_fecha = " AND MONTH(v.fecha_hora) = MONTH(CURDATE()) AND YEAR(v.fecha_hora) = YEAR(CURDATE()) ";
-        break;
-    default:
-        // Si no es ninguno de los anteriores, no aplicamos filtro
-        $filtro_fecha = ""; 
-        break;
+// Prioridad 1: Fecha Específica (Un día)
+if (!empty($fecha_filtro)) {
+    $filtro_fecha = " AND DATE(v.fecha_hora) = '" . $conn->real_escape_string($fecha_filtro) . "' ";
+    $rango = ''; // Limpiamos el selector rápido en la interfaz
+} 
+// Prioridad 2: Mes Específico (Ej: Abril 2026)
+elseif (!empty($mes_filtro)) {
+    // El input 'month' de HTML manda formato "YYYY-MM"
+    $partes = explode('-', $mes_filtro);
+    $anio = $conn->real_escape_string($partes[0]);
+    $mes = $conn->real_escape_string($partes[1]);
+    $filtro_fecha = " AND MONTH(v.fecha_hora) = '$mes' AND YEAR(v.fecha_hora) = '$anio' ";
+    $rango = '';
+} 
+// Prioridad 3: Año Específico (Ej: Todo el 2026)
+elseif (!empty($anio_filtro)) {
+    $anio = $conn->real_escape_string($anio_filtro);
+    $filtro_fecha = " AND YEAR(v.fecha_hora) = '$anio' ";
+    $rango = '';
+} 
+// Prioridad 4: Filtros Rápidos (Hoy, Semana, Mes actual)
+else {
+    switch ($rango) {
+        case 'hoy':
+            $filtro_fecha = " AND DATE(v.fecha_hora) = CURDATE() ";
+            break;
+        case 'semana':
+            $filtro_fecha = " AND v.fecha_hora >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) ";
+            break;
+        case 'mes':
+            $filtro_fecha = " AND MONTH(v.fecha_hora) = MONTH(CURDATE()) AND YEAR(v.fecha_hora) = YEAR(CURDATE()) ";
+            break;
+        case 'todo':
+        default:
+            $filtro_fecha = ""; 
+            break;
+    }
 }
+
 // 1. Ingresos Totales (Afectado por filtro)
 $sql_ventas = "SELECT SUM(total_pagar) as ingresos FROM ventas v WHERE v.estado = 'Completada' $filtro_fecha";
 $res_ventas = $conn->query($sql_ventas);
@@ -42,7 +72,7 @@ $sql_ganancia = "
 $res_ganancia = $conn->query($sql_ganancia);
 $ganancia = $res_ganancia->fetch_assoc()['ganancia_neta'] ?? 0;
 
-// 3. Alertas de Stock Crítico (No se afecta por fecha, es el stock actual)
+// 3. Alertas de Stock Crítico (No se afecta por fecha)
 $sql_alertas = "SELECT COUNT(*) as alertas FROM productos WHERE stock_actual <= stock_minimo";
 $res_alertas = $conn->query($sql_alertas);
 $alertas_stock = $res_alertas->fetch_assoc()['alertas'] ?? 0;
@@ -97,6 +127,16 @@ $res_ultimas_ventas = $conn->query($sql_ultimas_ventas);
         .header h1 { font-size: 28px; color: #0f172a; margin-bottom: 5px; }
         .header p { color: #64748b; }
 
+        /* Botones y Filtros */
+        .btn-primary { background: #1a73e8; color: white; border: none; padding: 10px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; transition: 0.2s; text-decoration: none; font-size: 14px; }
+        .btn-primary:hover { background: #1557b0; }
+        
+        .btn-excel { background: #166534; color: white; border: none; padding: 10px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; transition: 0.2s; text-decoration: none; font-size: 14px; }
+        .btn-excel:hover { background: #14532d; }
+        
+        .filtro-select { padding: 9px 12px; border-radius: 8px; border: 1px solid #cbd5e1; outline: none; font-size: 14px; background-color: white; color: #475569; font-weight: 600; cursor: pointer; transition: 0.2s; height: 40px;}
+        .filtro-select:focus, .filtro-select:hover { border-color: #1a73e8; }
+
         /* Cards Grid */
         .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 30px; }
         .card { background: white; padding: 24px; border-radius: 16px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); display: flex; align-items: center; justify-content: space-between; }
@@ -124,54 +164,83 @@ $res_ultimas_ventas = $conn->query($sql_ultimas_ventas);
 <body>
 
    <div class="sidebar">
-    <h2><i data-lucide="package" style="width: 28px; height: 28px;"></i> StockFlow</h2>
-    
-    <?php if ($_SESSION['rol_id'] == 1): ?>
-    <a href="dashboard_admin.php" class="menu-item <?php echo basename($_SERVER['PHP_SELF']) == 'dashboard_admin.php' ? 'active' : ''; ?>">
-        <i data-lucide="layout-dashboard"></i> Dashboard
-    </a>
-    <?php endif; ?>
+        <h2><i data-lucide="package" style="width: 28px; height: 28px;"></i> StockFlow</h2>
+        
+        <?php if ($_SESSION['rol_id'] == 1): ?>
+        <a href="dashboard_admin.php" class="menu-item <?php echo basename($_SERVER['PHP_SELF']) == 'dashboard_admin.php' ? 'active' : ''; ?>">
+            <i data-lucide="layout-dashboard"></i> Dashboard
+        </a>
+        <?php endif; ?>
+        
+        <?php if (in_array($_SESSION['rol_id'], [1, 3])): ?>
+        <a href="inventario.php" class="menu-item <?php echo basename($_SERVER['PHP_SELF']) == 'inventario.php' ? 'active' : ''; ?>">
+            <i data-lucide="box"></i> Inventario
+        </a>
+        <?php endif; ?>
 
-    <?php if (in_array($_SESSION['rol_id'], [1, 3])): ?>
-    <a href="inventario.php" class="menu-item <?php echo basename($_SERVER['PHP_SELF']) == 'inventario.php' ? 'active' : ''; ?>">
-        <i data-lucide="box"></i> Inventario
-    </a>
-    <?php endif; ?>
+        <?php if ($_SESSION['rol_id'] == 1): ?>
+        <a href="historial.php" class="menu-item <?php echo basename($_SERVER['PHP_SELF']) == 'historial.php' ? 'active' : ''; ?>">
+            <i data-lucide="history"></i> Bitácora
+        </a>
+        <a href="personal.php" class="menu-item <?php echo basename($_SERVER['PHP_SELF']) == 'personal.php' ? 'active' : ''; ?>">
+            <i data-lucide="users"></i> Personal
+        </a>
+        <?php endif; ?>
+        
+        <a href="index.php" class="menu-item logout" style="margin-top: auto;">
+            <i data-lucide="log-out"></i> Cerrar Sesión
+        </a>
+    </div>
 
-    <?php if ($_SESSION['rol_id'] == 1): ?>
-    <a href="personal.php" class="menu-item <?php echo basename($_SERVER['PHP_SELF']) == 'personal.php' ? 'active' : ''; ?>">
-        <i data-lucide="users"></i> Personal
-    </a>
-    <?php endif; ?>
-
-    <a href="index.php" class="menu-item logout" style="margin-top: auto;">
-        <i data-lucide="log-out"></i> Cerrar Sesión
-    </a>
-</div>
     <div class="main-content">
         
         <div class="header">
             <div>
                 <h1>Visión General del Negocio</h1>
-                <p>Bienvenido, Administrador. Aquí está el resumen de ventas.</p>
+                <p>Análisis de ventas y ganancias del periodo seleccionado.</p>
             </div>
             
-            <div style="display: flex; gap: 15px; align-items: center;">
-                <form method="GET" action="dashboard_admin.php" id="formFiltro">
-                    <select name="rango" onchange="document.getElementById('formFiltro').submit()" 
-                            style="padding: 10px; border-radius: 8px; border: 1px solid #ddd; outline: none; background: white; color: #334155; font-weight: 500;">
-                        <option value="todo" <?php echo $rango == 'todo' ? 'selected' : ''; ?>>Histórico Completo</option>
-                        <option value="hoy" <?php echo $rango == 'hoy' ? 'selected' : ''; ?>>Solo Hoy</option>
-                        <option value="semana" <?php echo $rango == 'semana' ? 'selected' : ''; ?>>Últimos 7 Días</option>
-                        <option value="mes" <?php echo $rango == 'mes' ? 'selected' : ''; ?>>Este Mes</option>
+            <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap; justify-content: flex-end;">
+                <!-- PANEL COMPLETO DE FILTROS -->
+                <form method="GET" action="dashboard_admin.php" id="formFiltro" style="display: flex; gap: 8px;">
+                    
+                    <!-- Rápido -->
+                    <select name="rango" id="f_rango" class="filtro-select" onchange="limpiarOtros('rango'); this.form.submit()" title="Filtros Rápidos">
+                        <option value="todo" <?php echo ($rango == 'todo') ? 'selected' : ''; ?>>Histórico</option>
+                        <option value="hoy" <?php echo ($rango == 'hoy') ? 'selected' : ''; ?>>Hoy</option>
+                        <option value="semana" <?php echo ($rango == 'semana') ? 'selected' : ''; ?>>Últimos 7 Días</option>
+                        <option value="mes" <?php echo ($rango == 'mes') ? 'selected' : ''; ?>>Mes Actual</option>
+                    </select>
+
+                    <!-- Día Específico -->
+                    <input type="date" name="fecha_filtro" id="f_fecha" class="filtro-select" 
+                           value="<?php echo htmlspecialchars($fecha_filtro); ?>" 
+                           onchange="limpiarOtros('fecha'); this.form.submit()" title="Buscar un Día Exacto">
+
+                    <!-- Mes Específico -->
+                    <input type="month" name="mes_filtro" id="f_mes" class="filtro-select" 
+                           value="<?php echo htmlspecialchars($mes_filtro); ?>" 
+                           onchange="limpiarOtros('mes'); this.form.submit()" title="Buscar por Mes">
+
+                    <!-- Año Específico -->
+                    <select name="anio_filtro" id="f_anio" class="filtro-select" onchange="limpiarOtros('anio'); this.form.submit()" title="Buscar por Año">
+                        <option value="">Año...</option>
+                        <?php 
+                        $anio_actual = date('Y');
+                        for($i = $anio_actual; $i >= 2024; $i--) {
+                            $sel = ($anio_filtro == $i) ? 'selected' : '';
+                            echo "<option value='$i' $sel>$i</option>";
+                        }
+                        ?>
                     </select>
                 </form>
 
-                <button style="padding: 10px 20px; background: #1a73e8; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: 0.2s;">
-                    <i data-lucide="download" style="width: 18px;"></i> Exportar
-                </button>
+                <a href="exportar.php?tipo=financiero&rango=<?php echo $rango; ?>&fecha_filtro=<?php echo $fecha_filtro; ?>&mes_filtro=<?php echo $mes_filtro; ?>&anio_filtro=<?php echo $anio_filtro; ?>" class="btn-excel">
+                    <i data-lucide="file-spreadsheet" style="width: 18px;"></i> Exportar Reporte
+                </a>
             </div>
         </div>
+        
         <div class="cards">
             <div class="card">
                 <div class="card-info">
@@ -238,6 +307,14 @@ $res_ultimas_ventas = $conn->query($sql_ultimas_ventas);
 
     <script>
         lucide.createIcons();
+
+        // CEREBRO DE LIMPIEZA DE FILTROS: Si eliges el "Año", borra el "Día" para no causar errores.
+        function limpiarOtros(origen) {
+            if (origen !== 'rango') document.getElementById('f_rango').value = 'todo';
+            if (origen !== 'fecha') document.getElementById('f_fecha').value = '';
+            if (origen !== 'mes') document.getElementById('f_mes').value = '';
+            if (origen !== 'anio') document.getElementById('f_anio').value = '';
+        }
 
         const ctx = document.getElementById('rotacionChart').getContext('2d');
         new Chart(ctx, {

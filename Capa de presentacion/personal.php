@@ -10,33 +10,85 @@ if (!isset($_SESSION['usuario_id']) || $_SESSION['rol_id'] != 1) {
 
 $mensaje = "";
 
-// PROCESAR REGISTRO DE NUEVO PERSONAL
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['crear_usuario'])) {
-    $nombre = $_POST['nombre'];
-    $email = $_POST['email'];
-    $password = password_hash($_POST['password'], PASSWORD_DEFAULT); // Encriptación profesional
-    $rol = $_POST['id_rol'];
-
-    // Verificar si el correo ya existe para evitar duplicados
-    $check_email = $conn->prepare("SELECT id_usuario FROM usuarios WHERE email = ?");
-    $check_email->bind_param("s", $email);
-    $check_email->execute();
+// PROCESAR CRUD DE PERSONAL (CREAR, EDITAR, ELIMINAR)
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['accion_personal'])) {
+    $accion = $_POST['accion_personal'];
     
-    if ($check_email->get_result()->num_rows > 0) {
-        $mensaje = "<div style='color: #ef4444; margin-bottom: 15px;'>El correo ya está registrado.</div>";
-    } else {
-        $sql = "INSERT INTO usuarios (nombre, email, password_hash, id_rol) VALUES (?, ?, ?, ?)";
-        $stmt = $conn->prepare($sql);
-        $stmt->bind_param("sssi", $nombre, $email, $password, $rol);
+    // 1. CREAR USUARIO
+    if ($accion == 'crear') {
+        $nombre = trim($_POST['nombre']);
+        $email = trim($_POST['email']);
+        $password = password_hash($_POST['password'], PASSWORD_DEFAULT); 
+        $rol = $_POST['id_rol'];
+
+        $check_email = $conn->prepare("SELECT id_usuario FROM usuarios WHERE email = ?");
+        $check_email->bind_param("s", $email);
+        $check_email->execute();
         
-        if ($stmt->execute()) {
-            $mensaje = "<div style='color: #22c55e; margin-bottom: 15px;'>Usuario creado exitosamente.</div>";
+        if ($check_email->get_result()->num_rows > 0) {
+            $mensaje = "<div style='color: #ef4444; background: #fee2e2; padding: 10px; border-radius: 8px; margin-bottom: 15px;'>El correo ya está registrado.</div>";
+        } else {
+            $sql = "INSERT INTO usuarios (nombre, email, password_hash, id_rol) VALUES (?, ?, ?, ?)";
+            $stmt = $conn->prepare($sql);
+            $stmt->bind_param("sssi", $nombre, $email, $password, $rol);
+            if ($stmt->execute()) {
+                $mensaje = "<div style='color: #166534; background: #dcfce7; padding: 10px; border-radius: 8px; margin-bottom: 15px;'>Usuario creado exitosamente.</div>";
+            }
+        }
+    } 
+    // 2. EDITAR USUARIO
+    elseif ($accion == 'editar') {
+        $id_usuario = $_POST['id_usuario'];
+        $nombre = trim($_POST['nombre']);
+        $email = trim($_POST['email']);
+        $rol = $_POST['id_rol'];
+        $password_raw = $_POST['password'];
+
+        // Verificar que el correo no pertenezca a OTRO usuario
+        $check_email = $conn->prepare("SELECT id_usuario FROM usuarios WHERE email = ? AND id_usuario != ?");
+        $check_email->bind_param("si", $email, $id_usuario);
+        $check_email->execute();
+
+        if ($check_email->get_result()->num_rows > 0) {
+            $mensaje = "<div style='color: #ef4444; background: #fee2e2; padding: 10px; border-radius: 8px; margin-bottom: 15px;'>El correo ya está en uso por otro empleado.</div>";
+        } else {
+            // Si dejó la contraseña en blanco, no la actualizamos
+            if (empty($password_raw)) {
+                $sql = "UPDATE usuarios SET nombre=?, email=?, id_rol=? WHERE id_usuario=?";
+                $stmt = $conn->prepare($sql);
+                $stmt->bind_param("ssii", $nombre, $email, $rol, $id_usuario);
+            } else {
+                // Si escribió algo, generamos el nuevo hash y lo guardamos
+                $password_hash = password_hash($password_raw, PASSWORD_DEFAULT);
+                $sql = "UPDATE usuarios SET nombre=?, email=?, password_hash=?, id_rol=? WHERE id_usuario=?";
+                $stmt = $conn->prepare($sql);
+                $stmt->bind_param("sssii", $nombre, $email, $password_hash, $rol, $id_usuario);
+            }
+            if ($stmt->execute()) {
+                $mensaje = "<div style='color: #166534; background: #dcfce7; padding: 10px; border-radius: 8px; margin-bottom: 15px;'>Usuario actualizado exitosamente.</div>";
+            }
+        }
+    }
+    // 3. ELIMINAR USUARIO
+    elseif ($accion == 'eliminar') {
+        $id_usuario = $_POST['id_usuario'];
+        
+        // Medida de seguridad: Evitar que el administrador borre su propia cuenta en uso
+        if ($id_usuario == $_SESSION['usuario_id']) {
+            $mensaje = "<div style='color: #ef4444; background: #fee2e2; padding: 10px; border-radius: 8px; margin-bottom: 15px;'>Error crítico: No puedes eliminar tu propia cuenta de Administrador.</div>";
+        } else {
+            $sql_del = "DELETE FROM usuarios WHERE id_usuario = ?";
+            $stmt_del = $conn->prepare($sql_del);
+            $stmt_del->bind_param("i", $id_usuario);
+            if ($stmt_del->execute()) {
+                $mensaje = "<div style='color: #166534; background: #dcfce7; padding: 10px; border-radius: 8px; margin-bottom: 15px;'>Usuario retirado del sistema.</div>";
+            }
         }
     }
 }
 
-// OBTENER LISTA DE PERSONAL (Con JOIN para ver el nombre del Rol)
-$sql_personal = "SELECT u.id_usuario, u.nombre, u.email, r.nombre_rol 
+// OBTENER LISTA DE PERSONAL (Traemos también u.id_rol para mandarlo al JavaScript)
+$sql_personal = "SELECT u.id_usuario, u.nombre, u.email, u.id_rol, r.nombre_rol 
                  FROM usuarios u 
                  JOIN roles r ON u.id_rol = r.id_rol 
                  ORDER BY r.id_rol ASC, u.nombre ASC";
@@ -73,8 +125,18 @@ $res_personal = $conn->query($sql_personal);
         .form-group { margin-bottom: 15px; }
         .form-group label { display: block; margin-bottom: 6px; font-size: 14px; font-weight: 600; color: #475569; }
         .form-group input, .form-group select { width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; outline: none; }
-        .btn-crear { width: 100%; padding: 12px; background: #1a73e8; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        .form-group input:focus, .form-group select:focus { border-color: #1a73e8; }
+        
+        .btn-crear { width: 100%; padding: 12px; background: #1a73e8; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s; flex: 2;}
         .btn-crear:hover { background: #1557b0; }
+        
+        .btn-cancelar { padding: 12px; background: #f1f5f9; color: #475569; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s; flex: 1; display: none;}
+        .btn-cancelar:hover { background: #e2e8f0; }
+
+        /* Botones de acción tabla */
+        .btn-icon { background: none; border: none; cursor: pointer; padding: 4px; transition: 0.2s; color: #94a3b8; }
+        .btn-icon.edit:hover { color: #1a73e8; }
+        .btn-icon.delete:hover { color: #ef4444; }
 
         /* Tabla */
         table { width: 100%; border-collapse: collapse; }
@@ -83,35 +145,39 @@ $res_personal = $conn->query($sql_personal);
         .badge { padding: 4px 8px; border-radius: 6px; font-weight: 600; font-size: 12px; }
         .badge-admin { background: #fef2f2; color: #ef4444; }
         .badge-cajero { background: #eff6ff; color: #3b82f6; }
+        .badge-almacen { background: #fef3c7; color: #d97706; }
     </style>
 </head>
 <body>
 
     <div class="sidebar">
-    <h2><i data-lucide="package" style="width: 28px; height: 28px;"></i> StockFlow</h2>
-    
-    <?php if ($_SESSION['rol_id'] == 1): ?>
-    <a href="dashboard_admin.php" class="menu-item <?php echo basename($_SERVER['PHP_SELF']) == 'dashboard_admin.php' ? 'active' : ''; ?>">
-        <i data-lucide="layout-dashboard"></i> Dashboard
-    </a>
-    <?php endif; ?>
+        <h2><i data-lucide="package" style="width: 28px; height: 28px;"></i> StockFlow</h2>
+        
+        <?php if ($_SESSION['rol_id'] == 1): ?>
+        <a href="dashboard_admin.php" class="menu-item <?php echo basename($_SERVER['PHP_SELF']) == 'dashboard_admin.php' ? 'active' : ''; ?>">
+            <i data-lucide="layout-dashboard"></i> Dashboard
+        </a>
+        <?php endif; ?>
+        
+        <?php if (in_array($_SESSION['rol_id'], [1, 3])): ?>
+        <a href="inventario.php" class="menu-item <?php echo basename($_SERVER['PHP_SELF']) == 'inventario.php' ? 'active' : ''; ?>">
+            <i data-lucide="box"></i> Inventario
+        </a>
+        <?php endif; ?>
 
-    <?php if (in_array($_SESSION['rol_id'], [1, 3])): ?>
-    <a href="inventario.php" class="menu-item <?php echo basename($_SERVER['PHP_SELF']) == 'inventario.php' ? 'active' : ''; ?>">
-        <i data-lucide="box"></i> Inventario
-    </a>
-    <?php endif; ?>
-
-    <?php if ($_SESSION['rol_id'] == 1): ?>
-    <a href="personal.php" class="menu-item <?php echo basename($_SERVER['PHP_SELF']) == 'personal.php' ? 'active' : ''; ?>">
-        <i data-lucide="users"></i> Personal
-    </a>
-    <?php endif; ?>
-
-    <a href="index.php" class="menu-item logout" style="margin-top: auto;">
-        <i data-lucide="log-out"></i> Cerrar Sesión
-    </a>
-</div>
+        <?php if ($_SESSION['rol_id'] == 1): ?>
+        <a href="historial.php" class="menu-item <?php echo basename($_SERVER['PHP_SELF']) == 'historial.php' ? 'active' : ''; ?>">
+            <i data-lucide="history"></i> Bitácora
+        </a>
+        <a href="personal.php" class="menu-item <?php echo basename($_SERVER['PHP_SELF']) == 'personal.php' ? 'active' : ''; ?>">
+            <i data-lucide="users"></i> Personal
+        </a>
+        <?php endif; ?>
+        
+        <a href="index.php" class="menu-item logout" style="margin-top: auto;">
+            <i data-lucide="log-out"></i> Cerrar Sesión
+        </a>
+    </div>
 
     <div class="main-content">
         <div class="header">
@@ -123,31 +189,38 @@ $res_personal = $conn->query($sql_personal);
 
         <div class="grid-personal">
             <div class="panel">
-                <h3>Registrar Nuevo Usuario</h3>
+                <h3 id="form_titulo">Registrar Nuevo Usuario</h3>
                 <?php echo $mensaje; ?>
+                
                 <form method="POST">
-                    <input type="hidden" name="crear_usuario" value="1">
+                    <!-- Campos ocultos para controlar si es crear o editar -->
+                    <input type="hidden" name="accion_personal" id="form_accion" value="crear">
+                    <input type="hidden" name="id_usuario" id="form_id_usuario" value="">
+                    
                     <div class="form-group">
                         <label>Nombre Completo</label>
-                        <input type="text" name="nombre" placeholder="Ej. Juan Pérez" required>
+                        <input type="text" name="nombre" id="form_nombre" placeholder="Ej. Juan Pérez" required>
                     </div>
                     <div class="form-group">
                         <label>Correo Electrónico</label>
-                        <input type="email" name="email" placeholder="juan@empresa.com" required>
+                        <input type="email" name="email" id="form_email" placeholder="juan@empresa.com" required>
                     </div>
                     <div class="form-group">
-                        <label>Contraseña Temporal</label>
-                        <input type="password" name="password" placeholder="••••••••" required>
+                        <label>Contraseña</label>
+                        <input type="password" name="password" id="form_password" placeholder="••••••••" required>
                     </div>
                     <div class="form-group">
                         <label>Rol del Usuario</label>
-                        <select name="id_rol" required>
+                        <select name="id_rol" id="form_rol" required>
                          <option value="1">Administrador (Acceso Total)</option>
                          <option value="2">Cajero (Solo Ventas)</option>
                          <option value="3">Encargado de Almacén (Solo Inventario)</option>
                          </select>
                     </div>
-                    <button type="submit" class="btn-crear">Registrar Empleado</button>
+                    <div style="display: flex; gap: 10px;">
+                        <button type="button" class="btn-cancelar" id="btn_cancelar" onclick="cancelarEdicion()">Cancelar</button>
+                        <button type="submit" class="btn-crear" id="btn_submit">Registrar Empleado</button>
+                    </div>
                 </form>
             </div>
 
@@ -159,21 +232,36 @@ $res_personal = $conn->query($sql_personal);
                             <th>Nombre</th>
                             <th>Email</th>
                             <th>Rol</th>
-                            <th>Acción</th>
+                            <th style="text-align: right;">Acciones</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <?php while($user = $res_personal->fetch_assoc()): ?>
+                        <?php while($user = $res_personal->fetch_assoc()): 
+                            $clase_badge = 'badge-cajero';
+                            if ($user['nombre_rol'] == 'Administrador') $clase_badge = 'badge-admin';
+                            if ($user['nombre_rol'] == 'Encargado de Almacen') $clase_badge = 'badge-almacen';
+                        ?>
                         <tr>
-                            <td><strong><?php echo $user['nombre']; ?></strong></td>
-                            <td><?php echo $user['email']; ?></td>
+                            <td><strong><?php echo htmlspecialchars($user['nombre']); ?></strong></td>
+                            <td><?php echo htmlspecialchars($user['email']); ?></td>
                             <td>
-                                <span class="badge <?php echo ($user['nombre_rol'] == 'Administrador') ? 'badge-admin' : 'badge-cajero'; ?>">
-                                    <?php echo $user['nombre_rol']; ?>
+                                <span class="badge <?php echo $clase_badge; ?>">
+                                    <?php echo htmlspecialchars($user['nombre_rol']); ?>
                                 </span>
                             </td>
-                            <td>
-                                <button style="background:none; border:none; cursor:pointer; color:#94a3b8;"><i data-lucide="trash-2" style="width:18px;"></i></button>
+                            <td style="text-align: right;">
+                                <!-- Botón Editar -->
+                                <button class="btn-icon edit" title="Editar Usuario" onclick="editarUsuario(
+                                    <?php echo $user['id_usuario']; ?>, 
+                                    '<?php echo addslashes($user['nombre']); ?>', 
+                                    '<?php echo addslashes($user['email']); ?>', 
+                                    <?php echo $user['id_rol']; ?>
+                                )"><i data-lucide="edit-3" style="width:18px;"></i></button>
+
+                                <!-- Botón Eliminar -->
+                                <button class="btn-icon delete" title="Eliminar Usuario" onclick="eliminarUsuario(<?php echo $user['id_usuario']; ?>)">
+                                    <i data-lucide="trash-2" style="width:18px;"></i>
+                                </button>
                             </td>
                         </tr>
                         <?php endwhile; ?>
@@ -183,6 +271,78 @@ $res_personal = $conn->query($sql_personal);
         </div>
     </div>
 
-    <script>lucide.createIcons();</script>
+    <script>
+        lucide.createIcons();
+
+        function editarUsuario(id, nombre, email, id_rol) {
+            // Cambiar modo del formulario
+            document.getElementById('form_accion').value = 'editar';
+            document.getElementById('form_id_usuario').value = id;
+            
+            // Cargar datos
+            document.getElementById('form_nombre').value = nombre;
+            document.getElementById('form_email').value = email;
+            document.getElementById('form_rol').value = id_rol;
+            
+            // La contraseña es opcional al editar
+            const pwdInput = document.getElementById('form_password');
+            pwdInput.required = false;
+            pwdInput.value = '';
+            pwdInput.placeholder = "(Opcional) Nueva contraseña...";
+            
+            // Cambiar interfaz
+            document.getElementById('form_titulo').innerText = 'Editar Usuario';
+            document.getElementById('btn_submit').innerText = 'Guardar Cambios';
+            document.getElementById('btn_cancelar').style.display = 'block';
+            
+            // Scroll arriba suave
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function cancelarEdicion() {
+            // Restaurar modo crear
+            document.getElementById('form_accion').value = 'crear';
+            document.getElementById('form_id_usuario').value = '';
+            
+            // Limpiar datos
+            document.getElementById('form_nombre').value = '';
+            document.getElementById('form_email').value = '';
+            document.getElementById('form_rol').value = '1';
+            
+            // La contraseña vuelve a ser obligatoria
+            const pwdInput = document.getElementById('form_password');
+            pwdInput.required = true;
+            pwdInput.value = '';
+            pwdInput.placeholder = "••••••••";
+            
+            // Restaurar interfaz
+            document.getElementById('form_titulo').innerText = 'Registrar Nuevo Usuario';
+            document.getElementById('btn_submit').innerText = 'Registrar Empleado';
+            document.getElementById('btn_cancelar').style.display = 'none';
+        }
+
+        function eliminarUsuario(id) {
+            if (confirm("¿Estás seguro de que deseas eliminar este usuario del sistema?")) {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = 'personal.php';
+
+                const inputAccion = document.createElement('input');
+                inputAccion.type = 'hidden';
+                inputAccion.name = 'accion_personal';
+                inputAccion.value = 'eliminar';
+
+                const inputId = document.createElement('input');
+                inputId.type = 'hidden';
+                inputId.name = 'id_usuario';
+                inputId.value = id;
+
+                form.appendChild(inputAccion);
+                form.appendChild(inputId);
+                document.body.appendChild(form);
+                form.submit();
+            }
+        }
+    </script>
 </body>
 </html>
