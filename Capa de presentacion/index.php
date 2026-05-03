@@ -9,6 +9,13 @@ require 'PHPMailer/src/Exception.php';
 require 'PHPMailer/src/PHPMailer.php';
 require 'PHPMailer/src/SMTP.php';
 
+// =======================================================
+// CONSTANTES DE NAVEGACIÓN (Clean Code para SonarQube)
+// =======================================================
+define('RUTA_ADMIN', 'Location: dashboard_admin.php');
+define('RUTA_POS', 'Location: pos_vendedor.php');
+define('RUTA_INV', 'Location: inventario.php');
+
 $error = "";
 $mensaje_recuperacion = "";
 $mostrar_recuperacion = false; 
@@ -49,19 +56,29 @@ if (!isset($_SESSION['usuario_id']) && isset($_COOKIE['stockflow_remember'])) {
                 $_SESSION['nombre'] = $user_c['nombre'];
                 $_SESSION['rol_id'] = $user_c['id_rol'];
                 
-                if ($user_c['id_rol'] == 1) header("Location: dashboard_admin.php");
-                elseif ($user_c['id_rol'] == 2) header("Location: pos_vendedor.php");
-                else header("Location: inventario.php");
+                // Aplicación de llaves y constantes (Fix SonarQube)
+                if ($user_c['id_rol'] == 1) {
+                    header(RUTA_ADMIN);
+                } elseif ($user_c['id_rol'] == 2) {
+                    header(RUTA_POS);
+                } else {
+                    header(RUTA_INV);
+                }
                 exit();
             }
         }
     }
 }
 
+// Redirección si ya hay sesión activa
 if (isset($_SESSION['usuario_id'])) {
-    if ($_SESSION['rol_id'] == 1) header("Location: dashboard_admin.php");
-    elseif ($_SESSION['rol_id'] == 2) header("Location: pos_vendedor.php");
-    else header("Location: inventario.php");
+    if ($_SESSION['rol_id'] == 1) {
+        header(RUTA_ADMIN);
+    } elseif ($_SESSION['rol_id'] == 2) {
+        header(RUTA_POS);
+    } else {
+        header(RUTA_INV);
+    }
     exit();
 }
 
@@ -93,9 +110,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['login_normal'])) {
                 setcookie('stockflow_remember', $valor_cookie, time() + (86400 * 30), "/"); 
             }
 
-            if ($usuario['id_rol'] == 1) header("Location: dashboard_admin.php");
-            elseif ($usuario['id_rol'] == 2) header("Location: pos_vendedor.php");
-            else header("Location: inventario.php");
+            // Aplicación de llaves y constantes (Fix SonarQube)
+            if ($usuario['id_rol'] == 1) {
+                header(RUTA_ADMIN);
+            } elseif ($usuario['id_rol'] == 2) {
+                header(RUTA_POS);
+            } else {
+                header(RUTA_INV);
+            }
             exit();
         } else {
             $error = "Contraseña incorrecta.";
@@ -127,12 +149,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['reset_password'])) {
         $mail = new PHPMailer(true);
 
         try {
-            // INTENTO DE ENVÍO DE CORREO
             $mail->isSMTP();                                            
             $mail->Host       = 'smtp.gmail.com';                     
             $mail->SMTPAuth   = true;                                   
             
-            // PON TUS DATOS FINALES AQUÍ
+            // ATENCIÓN: Vuelve a poner tu correo cartero y tu clave de 16 letras aquí
             $mail->Username   = 'carlossebastianruizdiaz@gmail.com'; 
             $mail->Password   = 'zwsk wytb cfzu kkje';  
             
@@ -160,10 +181,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['reset_password'])) {
                     </div>
                 </div>";
 
-            // Si esto falla, salta al catch y NO actualiza la BD
             $mail->send(); 
 
-            // SI EL CORREO SE ENVIÓ, SE ACTUALIZA LA BD
             $sql_upd = "UPDATE usuarios SET password_hash = ? WHERE email = ?";
             $stmt_upd = $conn->prepare($sql_upd);
             $stmt_upd->bind_param("ss", $hash_temporal, $email_recup);
@@ -172,7 +191,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['reset_password'])) {
             $mensaje_recuperacion = "<div class='success-msj'><i data-lucide='check-circle' style='width: 18px; margin-right: 5px; vertical-align: text-bottom;'></i> ¡Éxito! Hemos enviado una contraseña temporal a tu correo.</div>";
         
         } catch (Exception $e) {
-            $mensaje_recuperacion = "<div class='error-msj'><i data-lucide='alert-triangle' style='width: 18px; margin-right: 5px; vertical-align: text-bottom;'></i> Error de conexión. La contraseña NO fue cambiada. Intenta más tarde.</div>";
+            $mensaje_recuperacion = "<div class='error-msj'><i data-lucide='alert-triangle' style='width: 18px; margin-right: 5px; vertical-align: text-bottom;'></i> Error de conexión al servidor de correo. Intenta más tarde.</div>";
         }
     } else {
         $mensaje_recuperacion = "<div class='error-msj'>Este correo no existe en nuestro sistema.</div>";
