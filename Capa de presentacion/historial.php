@@ -49,7 +49,9 @@ $res_historial = $conn->query($sql_historial);
         <a href="inventario.php" class="menu-item"><i data-lucide="box"></i> Inventario</a>
         <a href="historial.php" class="menu-item active"><i data-lucide="history"></i> Bitácora</a>
         <a href="personal.php" class="menu-item"><i data-lucide="users"></i> Personal</a>
-        <a href="index.php" class="menu-item logout"><i data-lucide="log-out"></i> Cerrar Sesión</a>
+        <a href="index.php?logout=true" class="menu-item logout" style="margin-top: auto;">
+        <i data-lucide="log-out"></i> Cerrar Sesión
+        </a>
     </div>
 
     <div class="main-content">

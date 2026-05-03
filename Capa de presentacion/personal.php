@@ -174,8 +174,8 @@ $res_personal = $conn->query($sql_personal);
         </a>
         <?php endif; ?>
         
-        <a href="index.php" class="menu-item logout" style="margin-top: auto;">
-            <i data-lucide="log-out"></i> Cerrar Sesión
+        <a href="index.php?logout=true" class="menu-item logout" style="margin-top: auto;">
+        <i data-lucide="log-out"></i> Cerrar Sesión
         </a>
     </div>
 

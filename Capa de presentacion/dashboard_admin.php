@@ -187,8 +187,8 @@ $res_ultimas_ventas = $conn->query($sql_ultimas_ventas);
         </a>
         <?php endif; ?>
         
-        <a href="index.php" class="menu-item logout" style="margin-top: auto;">
-            <i data-lucide="log-out"></i> Cerrar Sesión
+        <a href="index.php?logout=true" class="menu-item logout" style="margin-top: auto;">
+        <i data-lucide="log-out"></i> Cerrar Sesión
         </a>
     </div>
 

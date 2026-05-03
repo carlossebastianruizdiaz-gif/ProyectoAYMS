@@ -87,8 +87,8 @@ if ($resNovedades && $resNovedades->num_rows > 0) {
         <div class="logo-mini">
             <i data-lucide="package" style="color: #1a73e8; width: 28px; height: 28px;"></i>
         </div>
-        <a href="index.php" class="logout-mini" title="Cerrar Sesión">
-            <i data-lucide="log-out"></i>
+        <a href="index.php?logout=true" class="menu-item logout" style="margin-top: auto; display: flex; justify-content: center; padding: 15px; color: #ef4444; text-decoration: none;" title="Cerrar Sesión de Forma Segura">
+        <i data-lucide="log-out" style="width: 24px; height: 24px;"></i>
         </a>
     </div>
 
