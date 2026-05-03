@@ -6,8 +6,9 @@ if (!isset($_SESSION['usuario_id']) || $_SESSION['rol_id'] != 1) {
     die("Acceso denegado. No tienes permisos para realizar esta acción.");
 }
 
-$tipo = isset($_GET['tipo']) ? $_GET['tipo'] : 'inventario';
-$fecha_actual = date("d-m-Y_H-i");
+// Limpiamos la variable para que solo acepte letras y números (Evita inyección en el nombre del archivo)
+$tipo_raw = isset($_GET['tipo']) ? $_GET['tipo'] : 'inventario';
+$tipo = preg_replace('/[^a-zA-Z0-9_]/', '', $tipo_raw);
 
 if ($tipo == 'financiero') {
     $nombre_archivo = "Reporte_Mensual_Financiero_StockFlow_" . $fecha_actual . ".xls";
@@ -128,8 +129,9 @@ if ($tipo == 'inventario') {
         }
     }
 
-    // TÍTULO DEL REPORTE (Ajustado a 6 columnas)
-    echo "<tr><th colspan='6' style='background-color: #0f172a; color: white; font-size: 18px; padding: 15px;'>{$titulo_reporte}</th></tr>";
+    // TÍTULO DEL REPORTE DESINFECTADO (Previene XSS)
+    $titulo_seguro = htmlspecialchars($titulo_reporte, ENT_QUOTES, 'UTF-8');
+    echo "<tr><th colspan='6' style='background-color: #0f172a; color: white; font-size: 18px; padding: 15px;'>{$titulo_seguro}</th></tr>";
     echo "<tr><td colspan='6'></td></tr>";
 
     // SECCIÓN A: INGRESOS Y GANANCIAS

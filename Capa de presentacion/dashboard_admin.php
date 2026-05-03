@@ -235,8 +235,9 @@ $res_ultimas_ventas = $conn->query($sql_ultimas_ventas);
                     </select>
                 </form>
 
-                <a href="exportar.php?tipo=financiero&rango=<?php echo $rango; ?>&fecha_filtro=<?php echo $fecha_filtro; ?>&mes_filtro=<?php echo $mes_filtro; ?>&anio_filtro=<?php echo $anio_filtro; ?>" class="btn-excel">
-                    <i data-lucide="file-spreadsheet" style="width: 18px;"></i> Exportar Reporte
+                <!-- CÓDIGO CORREGIDO Y DESINFECTADO -->
+                <a href="exportar.php?tipo=financiero&rango=<?php echo urlencode($rango); ?>&fecha_filtro=<?php echo urlencode($fecha_filtro); ?>&mes_filtro=<?php echo urlencode($mes_filtro); ?>&anio_filtro=<?php echo urlencode($anio_filtro); ?>" class="btn-excel">
+                <i data-lucide="file-spreadsheet" style="width: 18px;"></i> Exportar Reporte
                 </a>
             </div>
         </div>
